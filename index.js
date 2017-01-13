@@ -33,69 +33,69 @@ function RateLimiter (options) {
       };
     }
 
-		var isProbablyIoRedisResult = function(r) {
-			var probably = true;
-			for (var i = 0; i < r.length; i++) {
+    var isProbablyIoRedisResult = function(r) {
+      var probably = true;
+      for (var i = 0; i < r.length; i++) {
         if (!(r[i] instanceof Object && r[i].hasOwnProperty('length') && r[i].length == 2)) {
-					probably = false;
-				}
-			}
-			return probably;
-		};
+          probably = false;
+        }
+      }
+      return probably;
+    };
 
-		var getIoRedisResultErrors = function(r) {
-			var errors = [];
-			for (var i = 0; i < r.length; i++) {
-				var currentItem = r[i];
-				if (currentItem[0] !== null) {
-					errors.push(currentItem[0]);
-				}
-			}
-			return errors;
-		};
+    var getIoRedisResultErrors = function(r) {
+      var errors = [];
+      for (var i = 0; i < r.length; i++) {
+        var currentItem = r[i];
+        if (currentItem[0] !== null) {
+          errors.push(currentItem[0]);
+        }
+      }
+      return errors;
+    };
 
-		var flattenIoRedisResults = function(r) {
-			var results = [];
-			for (var i = 0; i < r.length; i++) {
-				var currentItem = r[i];
-				results.push(currentItem[1]);
-			}
-			return results;
-		};
+    var flattenIoRedisResults = function(r) {
+      var results = [];
+      for (var i = 0; i < r.length; i++) {
+        var currentItem = r[i];
+        results.push(currentItem[1]);
+      }
+      return results;
+    };
 
-		var handleIoRedisResult = function(result) {
-			var err = null;
-			var finalResult = null;
-			var isProbablyIoRedisResult = true;
-			for (var i = 0; i < result.length; i++) {
+    var handleIoRedisResult = function(result) {
+      var err = null;
+      var finalResult = null;
+      var isProbablyIoRedisResult = true;
+      for (var i = 0; i < result.length; i++) {
         if (!(result[i] instanceof Object && result[i].hasOwnProperty('length'))) {
-					isProbablyIoRedisResult = false;
-				}
-			}
-			if (isProbablyIoRedisResult) {
-				finalResult = [];
-				for (var j = 0; j < result.length; j++) {
+          isProbablyIoRedisResult = false;
+        }
+      }
+      if (isProbablyIoRedisResult) {
+        finalResult = [];
+        for (var j = 0; j < result.length; j++) {
           var currentItem = result[j];
-					if (currentItem[0] !== null) {
-						err = currentItem[0];
-					}
-					finalResult.push(currentItem[1]);
-				}
-			} else {
+          if (currentItem[0] !== null) {
+            err = currentItem[0];
+          }
+          finalResult.push(currentItem[1]);
+        }
+      } else {
         finalResult = result;
-			}
-			return [err, finalResult];
-		};
-    
+      }
+      return [err, finalResult];
+    };
+
     return function (id, cb) {
       if (!cb) {
         cb = id;
         id = "";
       }
-      
+
 
       assert.equal(typeof cb, "function", "Callback must be a function.");
-      
+
       var now = microtime.now();
       var key = namespace + id;
       var clearBefore = now - interval;
@@ -108,14 +108,14 @@ function RateLimiter (options) {
       batch.exec(function (err, resultArr) {
         if (err) return cb(err);
 
-				if (isProbablyIoRedisResult(resultArr)) {
-					var errors = getIoRedisResultErrors(resultArr);
-					if (errors.length > 0) {
-						// Just report the first error
+        if (isProbablyIoRedisResult(resultArr)) {
+          var errors = getIoRedisResultErrors(resultArr);
+          if (errors.length > 0) {
+            // Just report the first error
             return cb(errors[0]);
-					}
-					resultArr = flattenIoRedisResults(resultArr);
-				}
+          }
+          resultArr = flattenIoRedisResults(resultArr);
+        }
 
         var userSet = zrangeToUserSet(resultArr[1]);
 
@@ -146,7 +146,7 @@ function RateLimiter (options) {
         id = cb || "";
         cb = null;
       }
-      
+
       var now = microtime.now();
       var clearBefore = now - interval;
 
@@ -184,6 +184,3 @@ function RateLimiter (options) {
 }
 
 module.exports = RateLimiter;
-
-
-

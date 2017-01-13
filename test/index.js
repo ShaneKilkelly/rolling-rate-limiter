@@ -491,40 +491,40 @@ describe("rateLimiter", function () {
     });
   });
 
-	describe("operations with a mocked ioredis", function() {
-		var _multiExec;
+  describe("operations with a mocked ioredis", function() {
+    var _multiExec;
 
-		var _makeClient = function(opts) {
-			var _multi;
-			// Behold, a ghastly hack:
-			//   - Intercept results from client.multi().exec()
-			//     and map to a list of pairs, just like ioredis.
-			//   - Example: [0, [], 2] => [ [null, 0], [null, []], [null, 2] ]
+    var _makeClient = function(opts) {
+      var _multi;
+      // Behold, a ghastly hack:
+      //   - Intercept results from client.multi().exec()
+      //     and map to a list of pairs, just like ioredis.
+      //   - Example: [0, [], 2] => [ [null, 0], [null, []], [null, 2] ]
       var client = redis.createClient(opts);
-			client.multi = function(args) {
+      client.multi = function(args) {
         _multi = new redis.Multi(client, args);
         return _multi;
-			};
-			redis.Multi.prototype.exec = function(cb) {
-				// call old multi, alter result, call the callback with altered result
+      };
+      redis.Multi.prototype.exec = function(cb) {
+        // call old multi, alter result, call the callback with altered result
         _multiExec.bind(_multi)(function(err, results) {
-					cb(err, results.map(function(el) { return [null, el]; }));
-				});
-			};
-			return client;
-		};
+          cb(err, results.map(function(el) { return [null, el]; }));
+        });
+      };
+      return client;
+    };
 
     beforeEach(function() {
-			_multiExec = redis.Multi.prototype.exec;
+      _multiExec = redis.Multi.prototype.exec;
       redis.fast = false; // mock redis network latency.
     });
 
-		afterEach(function() {
-			redis.Multi.prototype.exec = _multiExec;
-		});
+    afterEach(function() {
+      redis.Multi.prototype.exec = _multiExec;
+    });
 
     it("prevents requests that exceed the maximum over the interval", function(done) {
-			var client = _makeClient();
+      var client = _makeClient();
       var counter = RateLimitedCounter({
         redis: client,
         interval: 300,
@@ -746,5 +746,5 @@ describe("rateLimiter", function () {
       });
     });
 
-	});
+  });
 });
