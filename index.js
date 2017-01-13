@@ -33,6 +33,36 @@ function RateLimiter (options) {
       };
     }
 
+		var isProbablyIoRedisResult = function(r) {
+			var probably = true;
+			for (var i = 0; i < r.length; i++) {
+        if (!(r[i] instanceof Object && r[i].hasOwnProperty('length') && r[i].length == 2)) {
+					probably = false;
+				}
+			}
+			return probably;
+		};
+
+		var getIoRedisResultErrors = function(r) {
+			var errors = [];
+			for (var i = 0; i < r.length; i++) {
+				var currentItem = r[i];
+				if (currentItem[0] !== null) {
+					errors.push(currentItem[0]);
+				}
+			}
+			return errors;
+		};
+
+		var flattenIoRedisResults = function(r) {
+			var results = [];
+			for (var i = 0; i < r.length; i++) {
+				var currentItem = r[i];
+				results.push(currentItem[1]);
+			}
+			return results;
+		};
+
 		var handleIoRedisResult = function(result) {
 			var err = null;
 			var finalResult = null;
@@ -78,11 +108,14 @@ function RateLimiter (options) {
       batch.exec(function (err, resultArr) {
         if (err) return cb(err);
 
-				cleanedResult = handleIoRedisResult(resultArr);
-				err = cleanedResult[0];
-				if (err) return cb(err);
-
-				resultArr = cleanedResult[1];
+				if (isProbablyIoRedisResult(resultArr)) {
+					var errors = getIoRedisResultErrors(resultArr);
+					if (errors.length > 0) {
+						// Just report the first error, whatever
+            return cb(errors[0]);
+					}
+					resultArr = flattenIoRedisResults(resultArr);
+				}
 
         var userSet = zrangeToUserSet(resultArr[1]);
 

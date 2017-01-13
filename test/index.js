@@ -490,4 +490,51 @@ describe("rateLimiter", function () {
       });
     });
   });
+
+	describe("operations with a mocked ioredis", function() {
+		var _multi;
+		var _multiExec;
+		var client;
+
+    beforeEach(function() {
+			// Behold, a ghastly hack:
+			//   - Intercept results from client.multi().exec()
+			//     and map to a list of pairs, just like ioredis.
+			//   - Example: [0, [], 2] => [ [null, 0], [null, []], [null, 2] ]
+      client = redis.createClient();
+			client.multi = function(args) {
+        _multi = new redis.Multi(client, args);
+        return _multi;
+			};
+			_multiExec = redis.Multi.prototype.exec;
+			redis.Multi.prototype.exec = function(cb) {
+				// call old multi, alter result, call the callback with altered result
+        _multiExec.bind(_multi)(function(err, results) {
+					cb(err, results.map(function(el) { return [null, el]; }));
+				});
+			};
+      redis.fast = false; // mock redis network latency.
+    });
+
+		afterEach(function() {
+			redis.Multi.prototype.exec = _multiExec;
+		});
+
+    it("prevents requests that exceed the maximum over the interval", function(done) {
+      var counter = RateLimitedCounter({
+        redis: client,
+        interval: 300,
+        maxInInterval: 30
+      });
+
+      async.times(100, function(n, next) {
+        counter.increment(next);
+      }, function(err) {
+        if (err) throw err;
+        expect(counter.getCount()).to.equal(30);
+        done();
+      });
+    });
+
+	});
 });
