@@ -494,7 +494,7 @@ describe("rateLimiter", function () {
 	describe("operations with a mocked ioredis", function() {
 		var _multiExec;
 
-		var makeClient = function(opts) {
+		var _makeClient = function(opts) {
 			var _multi;
 			// Behold, a ghastly hack:
 			//   - Intercept results from client.multi().exec()
@@ -524,7 +524,7 @@ describe("rateLimiter", function () {
 		});
 
     it("prevents requests that exceed the maximum over the interval", function(done) {
-			var client = makeClient();
+			var client = _makeClient();
       var counter = RateLimitedCounter({
         redis: client,
         interval: 300,
@@ -541,7 +541,7 @@ describe("rateLimiter", function () {
     });
 
     it("works when redis is in buffer mode", function(done) {
-      var client = makeClient({return_buffers: true});
+      var client = _makeClient({return_buffers: true});
       // fakeredis seems to hide this option.
       client.options = {};
       client.options.return_buffers = true;
@@ -624,7 +624,7 @@ describe("rateLimiter", function () {
     });
 
     it("can share a redis between multiple rate limiters in different namespaces", function(done) {
-      var client = makeClient();
+      var client = _makeClient();
       var counters = [
         RateLimitedCounter({
           redis: client,
@@ -653,7 +653,7 @@ describe("rateLimiter", function () {
     });
 
     it("can share a redis between multiple rate limiters in the same namespace", function(done) {
-      var client = makeClient();
+      var client = _makeClient();
       var namespace = Math.random().toString(36).slice(2);
       var counters = [
         RateLimitedCounter({
@@ -698,7 +698,7 @@ describe("rateLimiter", function () {
 
     it("returns the time after which actions will be allowed", function(done) {
       var limiter1 = RateLimiter({
-        redis: redis.createClient(),
+        redis: _makeClient(),
         interval: 10000,
         maxInInterval: 2
       });
@@ -729,7 +729,7 @@ describe("rateLimiter", function () {
     });
 
     it("ttl functions properly", function(done) {
-      var client = makeClient();
+      var client = _makeClient();
       var namespace = Math.random().toString(36).slice(2);
       var limiter = RateLimiter({
         redis: client,
