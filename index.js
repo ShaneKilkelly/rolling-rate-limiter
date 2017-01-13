@@ -32,6 +32,30 @@ function RateLimiter (options) {
         return arr.map(Number);
       };
     }
+
+		var handleIoRedisResult = function(result) {
+			var err = null;
+			var finalResult = null;
+			var isProbablyIoRedisResult = true;
+			for (var i = 0; i < result.length; i++) {
+        if (!(result[i] instanceof Object && result[i].hasOwnProperty('length'))) {
+					isProbablyIoRedisResult = false;
+				}
+			}
+			if (isProbablyIoRedisResult) {
+				finalResult = [];
+				for (var j = 0; j < result.length; j++) {
+          var currentItem = result[j];
+					if (currentItem[0] !== null) {
+						err = currentItem[0];
+					}
+					finalResult.push(currentItem[1]);
+				}
+			} else {
+        finalResult = result;
+			}
+			return [err, finalResult];
+		};
     
     return function (id, cb) {
       if (!cb) {
@@ -53,7 +77,13 @@ function RateLimiter (options) {
       batch.expire(key, Math.ceil(interval / 1000000)); // convert to seconds, as used by redis ttl.
       batch.exec(function (err, resultArr) {
         if (err) return cb(err);
-    
+
+				cleanedResult = handleIoRedisResult(resultArr);
+				err = cleanedResult[0];
+				if (err) return cb(err);
+
+				resultArr = cleanedResult[1];
+
         var userSet = zrangeToUserSet(resultArr[1]);
 
         var tooManyInInterval = userSet.length >= maxInInterval;
