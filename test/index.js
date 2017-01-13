@@ -492,27 +492,30 @@ describe("rateLimiter", function () {
   });
 
 	describe("operations with a mocked ioredis", function() {
-		var _multi;
 		var _multiExec;
-		var client;
 
-    beforeEach(function() {
+		var makeClient = function(opts) {
+			var _multi;
 			// Behold, a ghastly hack:
 			//   - Intercept results from client.multi().exec()
 			//     and map to a list of pairs, just like ioredis.
 			//   - Example: [0, [], 2] => [ [null, 0], [null, []], [null, 2] ]
-      client = redis.createClient();
+      var client = redis.createClient(opts);
 			client.multi = function(args) {
         _multi = new redis.Multi(client, args);
         return _multi;
 			};
-			_multiExec = redis.Multi.prototype.exec;
 			redis.Multi.prototype.exec = function(cb) {
 				// call old multi, alter result, call the callback with altered result
         _multiExec.bind(_multi)(function(err, results) {
 					cb(err, results.map(function(el) { return [null, el]; }));
 				});
 			};
+			return client;
+		};
+
+    beforeEach(function() {
+			_multiExec = redis.Multi.prototype.exec;
       redis.fast = false; // mock redis network latency.
     });
 
@@ -521,6 +524,7 @@ describe("rateLimiter", function () {
 		});
 
     it("prevents requests that exceed the maximum over the interval", function(done) {
+			var client = makeClient();
       var counter = RateLimitedCounter({
         redis: client,
         interval: 300,
@@ -533,6 +537,212 @@ describe("rateLimiter", function () {
         if (err) throw err;
         expect(counter.getCount()).to.equal(30);
         done();
+      });
+    });
+
+    it("works when redis is in buffer mode", function(done) {
+      var client = makeClient({return_buffers: true});
+      // fakeredis seems to hide this option.
+      client.options = {};
+      client.options.return_buffers = true;
+      var counter = RateLimitedCounter({
+        redis: client,
+        interval: 300,
+        maxInInterval: 30
+      });
+
+      async.times(100, function(n, next) {
+        counter.increment(next);
+      }, function(err) {
+        if (err) throw err;
+        expect(counter.getCount()).to.equal(30);
+        done();
+      });
+    });
+
+    it("keeps seperate counts for multiple users", function(done) {
+      var counter = RateLimitedCounter({
+        redis: redis.createClient(),
+        interval: 300,
+        maxInInterval: 30
+      });
+
+      async.times(100, function(n, next) {
+        counter.increment(n % 3, next);
+      }, function(err) {
+        if (err) throw err;
+        expect(counter.getCount(0)).to.equal(30);
+        expect(counter.getCount(1)).to.equal(30);
+        expect(counter.getCount(2)).to.equal(30);
+        done();
+      });
+    });
+
+
+    it("allows requests after the interval has passed", function(done) {
+      var counter = RateLimitedCounter({
+        redis: redis.createClient(),
+        interval: 150,
+        maxInInterval: 30
+      });
+
+      async.times(100, function(n, next) {
+        counter.increment(n % 3, next);
+      }, function(err) {
+        if (err) throw err;
+        setTimeout(function() {
+          async.times(100, function(n, next) {
+            counter.increment(n % 3, next);
+          }, function(err, results) {
+            if (err) throw err;
+            expect(counter.getCount(0)).to.equal(60);
+            expect(counter.getCount(1)).to.equal(60);
+            expect(counter.getCount(2)).to.equal(60);
+            done();
+          });
+        }, 150);
+      });
+    });
+
+    it("doesn't allow consecutive requests less than the minDifferent apart", function(done) {
+      var counter = RateLimitedCounter({
+        redis: redis.createClient(),
+        interval: 1000000,
+        maxInInterval: 1000,
+        minDifference: 100
+      });
+
+      async.times(100, function(n, next) {
+        counter.increment(n % 3, next);
+      }, function(err) {
+        if (err) throw err;
+        expect(counter.getCount(0)).to.equal(1);
+        expect(counter.getCount(1)).to.equal(1);
+        expect(counter.getCount(2)).to.equal(1);
+        done();
+      });
+    });
+
+    it("can share a redis between multiple rate limiters in different namespaces", function(done) {
+      var client = makeClient();
+      var counters = [
+        RateLimitedCounter({
+          redis: client,
+          interval: 300,
+          maxInInterval: 15
+        }),
+        RateLimitedCounter({
+          redis: client,
+          interval: 300,
+          maxInInterval: 15
+        })
+      ];
+      async.times(200, function(n, next) {
+        var counter = counters[n % 2];
+        counter.increment(n % 3, next);
+      }, function(err) {
+        if (err) throw err;
+        expect(counters[0].getCount(0)).to.equal(15);
+        expect(counters[0].getCount(1)).to.equal(15);
+        expect(counters[0].getCount(2)).to.equal(15);
+        expect(counters[1].getCount(0)).to.equal(15);
+        expect(counters[1].getCount(1)).to.equal(15);
+        expect(counters[1].getCount(2)).to.equal(15);
+        done();
+      });
+    });
+
+    it("can share a redis between multiple rate limiters in the same namespace", function(done) {
+      var client = makeClient();
+      var namespace = Math.random().toString(36).slice(2);
+      var counters = [
+        RateLimitedCounter({
+          redis: client,
+          namespace: namespace,
+          interval: 300,
+          maxInInterval: 30
+        }),
+        RateLimitedCounter({
+          redis: client,
+          namespace: namespace,
+          interval: 300,
+          maxInInterval: 30
+        })
+      ];
+      async.times(200, function(n, next) {
+        var counter = counters[(n + 1) % 2];
+        counter.increment(n % 3, next);
+      }, function(err) {
+        if (err) throw err;
+
+        // CountXY is the count for counter x and user y.
+        var count00 = counters[0].getCount(0);
+        var count01 = counters[0].getCount(1);
+        var count02 = counters[0].getCount(2);
+        var count10 = counters[1].getCount(0);
+        var count11 = counters[1].getCount(1);
+        var count12 = counters[1].getCount(2);
+
+        expect(count00 + count10).to.equal(30);
+        expect(count01 + count11).to.equal(30);
+        expect(count02 + count12).to.equal(30);
+        expect(count00).to.be.above(10);
+        expect(count01).to.be.above(10);
+        expect(count02).to.be.above(10);
+        expect(count10).to.be.above(10);
+        expect(count11).to.be.above(10);
+        expect(count12).to.be.above(10);
+        done();
+      });
+    });
+
+    it("returns the time after which actions will be allowed", function(done) {
+      var limiter1 = RateLimiter({
+        redis: redis.createClient(),
+        interval: 10000,
+        maxInInterval: 2
+      });
+      async.times(3, function(n, next) {
+        limiter1(next);
+      }, function(err, results) {
+        expect(results[0]).to.equal(0);
+        expect(results[1]).to.equal(0);
+        expect(results[2]).to.be.above(9900);
+        expect(results[2]).to.be.below(10001);
+
+        // ---
+
+        var limiter2 = RateLimiter({
+          interval: 10000,
+          maxInInterval: 100,
+          minDifference: 100
+        });
+        async.times(3, function(n, next) {
+          limiter2(next);
+        }, function(err, results) {
+          expect(results[0]).to.equal(0);
+          expect(results[1]).to.be.above(90);
+          expect(results[1]).to.be.below(101);
+          done();
+        });
+      });
+    });
+
+    it("ttl functions properly", function(done) {
+      var client = makeClient();
+      var namespace = Math.random().toString(36).slice(2);
+      var limiter = RateLimiter({
+        redis: client,
+        interval: 10000,
+        maxInInterval: 5,
+        namespace: namespace
+      });
+      limiter("1", function(err, result) {
+        var key = namespace + "1";
+        client.ttl(key, function(err, result) {
+          expect(result).to.equal(10);
+          done();
+        });
       });
     });
 

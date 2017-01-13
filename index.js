@@ -111,7 +111,7 @@ function RateLimiter (options) {
 				if (isProbablyIoRedisResult(resultArr)) {
 					var errors = getIoRedisResultErrors(resultArr);
 					if (errors.length > 0) {
-						// Just report the first error, whatever
+						// Just report the first error
             return cb(errors[0]);
 					}
 					resultArr = flattenIoRedisResults(resultArr);
